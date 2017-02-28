@@ -1,0 +1,86 @@
+tosca_definitions_version: tosca_simple_yaml_1_0
+
+description: >
+  TOSCA simple profile with one router
+node_types:
+  hot.nodes.Compute:
+    derived_from: tosca.nodes.Compute
+    properties:
+      key_name:
+        type: string
+      image:
+        type: string
+      flavor:
+        type: string
+  tosca.nodes.network.Router:
+    derived_from: tosca.nodes.Root
+    properties:
+      public_network:
+        type: string
+    requirements:
+      - link:
+          capability: tosca.capabilities.network.Linkable
+          relationship: tosca.relationships.network.LinksTo
+          node: tosca.nodes.network.Network
+  tosca.nodes.network.FloatingIP:
+    derived_from: tosca.nodes.Root
+    properties:
+      floating_network:
+        type: string
+    requirements:
+      - link:
+          capability: tosca.capabilities.network.Linkable
+          relationship: tosca.relationships.network.LinksTo
+          node: tosca.nodes.network.Port
+topology_template:
+  inputs:
+    public_net:
+      type: string
+      description: Name or ID of the public network
+      default: 53906b86-bcaa-457e-a6a9-d6899ec88c5a
+    compute_image:
+      type: string
+      description: Compute instance image
+      default: cirros
+    compute_flavor:
+      type: string
+      description: Compute instance flavor
+      default: m1.small
+    key_name:
+      type: string
+      description: Key name
+      default: mykey
+  node_templates:
+    my_server:
+      type: hot.nodes.Compute
+      properties:
+        flavor: { get_input: compute_flavor }
+        image: { get_input: compute_image }
+        key_name: { get_input: key_name }
+    my_network1:
+      type: tosca.nodes.network.Network
+      properties:
+        cidr: '192.168.1.0/24'
+        network_name: net1
+    router:
+      type: tosca.nodes.network.Router
+      properties:
+        public_network: { get_input: public_net }
+      requirements:
+        - link: my_network1
+    mysql_floating_ip:
+      type: tosca.nodes.network.FloatingIP 
+      properties:
+        floating_network: { get_param: public_net }
+      requirements:
+        - link: my_port1 
+    my_port1:
+      type: tosca.nodes.network.Port
+      properties:
+        order: 0
+      requirements:
+        - binding:
+            node: my_server
+        - link:
+            node: my_network1
+  outputs:

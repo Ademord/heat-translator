@@ -1,0 +1,62 @@
+#my own tosca hello world
+tosca_definitions_version: tosca_simple_yaml_1_0
+description: Template for deploying a single server with predefined properties.
+
+node_types:
+  hot.nodes.Compute:
+    derived_from: tosca.nodes.Compute
+    properties:
+      key_name:
+        type: string
+      image:
+        type: string
+      flavor:
+        type: string
+
+topology_template:
+  inputs:
+    network_name:
+      type: string
+      description: Network name
+      default: private #53906b86-bcaa-457e-a6a9-d6899ec88c5a
+    compute_image:
+      type: string
+      description: Compute instance image
+      default: cirros
+    compute_flavor:
+      type: string
+      description: Compute instance flavor
+      default: m1.small
+    key_name:
+      type: string
+      description: Key name
+      default: mykey
+
+  node_templates:
+    my_server:
+      type: hot.nodes.Compute
+      properties:
+        flavor: { get_input: compute_flavor }
+        image: { get_input: compute_image }
+        key_name: { get_input: key_name }
+    my_network:
+      type: tosca.nodes.network.Network
+      properties:
+        network_name: { get_input: network_name }
+        ip_version: 4
+        cidr: '10.11.0.0/24'
+        start_ip: '10.11.0.50'
+        end_ip: '10.11.0.200'
+        gateway_ip: '10.11.0.1'
+    my_port:
+      type: tosca.nodes.network.Port
+      requirements:
+        - binding:
+            node: my_server
+        - link:
+            node: my_network
+
+  outputs:
+    private_ip:
+      description: The private IP address of the deployed server instance.
+      value: { get_attribute: [my_server, private_address] }

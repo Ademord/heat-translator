@@ -1,0 +1,210 @@
+heat_template_version: 2013-05-23
+
+description: HOT template for the ORCH CO Lab
+
+parameters:
+  key_name:
+    type: string
+    description: Name of keypair to assign to servers
+    default: mykey
+  image:
+    type: string
+    description: Name of image to use for servers
+    default: cirros
+  flavor:
+    type: string
+    description: Flavor to use for servers
+    default: m1.small
+  public_net:
+    type: string
+    description: >
+      ID or name of public network for which floating IP addresses will be allocated
+    default: 77e659dd-f1b4-430c-ac6f-d92ec0137c85
+  private_net_name:
+    type: string
+    description: Name of private network to be created
+    default: fr-net-orch-lab
+  wordpress_password:
+    type: string
+    description: Wordpress Database password 
+    default: root12
+  
+resources:
+  private_net:
+    type: OS::Neutron::Net
+    properties:
+      name: { get_param: private_net_name }
+
+  private_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      network_id: { get_resource: private_net }
+      cidr: 10.10.0.0/24
+      gateway_ip: 10.10.0.1
+      dns_nameservers: [8.8.8.8]
+      enable_dhcp: true
+
+  router:
+    type: OS::Neutron::Router
+    properties:
+      external_gateway_info:
+        network: { get_param: public_net }
+
+  router_interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_resource: router }
+      subnet_id: { get_resource: private_subnet }
+
+  wordpress_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_resource: private_net }
+      fixed_ips:
+        - subnet_id: { get_resource: private_subnet }
+      security_groups: [{ get_resource: server_security_group }]
+
+  wordpress_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network: { get_param: public_net }
+      port_id: { get_resource: wordpress_port }
+      
+  wordpress:
+    type: OS::Nova::Server
+    depends_on: mysql
+    properties:
+      name: orch-lab-wordpress
+      image: { get_param: image }
+      flavor: { get_param: flavor}
+      networks:
+        - port: { get_resource: wordpress_port }
+      user_data_format: RAW
+      user_data: 
+        str_replace:
+          params:
+            $WP-FLOATING-IP: { get_resource: wordpress_floating_ip }
+            $DB_IPADDR: { get_attr: [mysql, first_address] }
+            $DB_PASSWORD: { get_param: wordpress_password }
+          template: |
+            #!/bin/bash 
+            apt­get update 
+            apt­get ­y install wordpress 
+            cat > /etc/apache2/sites­available/wordpress.conf <<EOF 
+            Alias /blog /usr/share/wordpress
+            <Directory /usr/share/wordpress> 
+            Options FollowSymLinks 
+            AllowOverride Limit Options FileInfo 
+            DirectoryIndex index.php 
+            Order allow,deny 
+            Allow from all 
+            </Directory> 
+            <Directory /usr/share/wordpress/wp­content> 
+            Options FollowSymLinks 
+            Order allow,deny 
+            Allow from all 
+            </Directory> 
+            EOF 
+            cat > /etc/wordpress/config­$WP­FLOATING­IP.php <<EOF 
+            <?php 
+            define('DB_NAME', 'wordpress'); 
+            define('DB_USER', 'wordpress'); 
+            define('DB_PASSWORD', '$DB_PASSWORD'); 
+            define('DB_HOST', '$DB_IPADDR'); 
+            define('WP_CONTENT_DIR', '/usr/share/wordpress/wp­content'); 
+            ?> 
+            EOF 
+            a2ensite wordpress 
+            service apache2 reload
+
+  mysql_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_resource: private_net }
+      fixed_ips:
+        - subnet_id: { get_resource: private_subnet }
+      security_groups: [{ get_resource: server_security_group }]
+  
+  mysql_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network: { get_param: public_net }
+      port_id: { get_resource: mysql_port }
+
+  mysql:
+    type: OS::Nova::Server
+    properties:
+      name: orch-lab-mysql
+      image: { get_param: image }
+      flavor: { get_param: flavor }
+      key_name: { get_param: key_name }
+      networks:
+        - port: { get_resource: mysql_port }
+      user_data_format: RAW
+      user_data: 
+        str_replace:
+          params:
+            $DB_PASSWORD: { get_param: wordpress_password }
+          template: |
+            #!/bin/bash 
+            apt­get update 
+            export DEBIAN_FRONTEND=noninteractive 
+            debconf­set­selections <<< 'mysql­server mysql­server/root_password 
+            password $DB_PASSWORD' 
+            debconf­set­selections <<< 'mysql­server 
+            mysql­server/root_password_again password $DB_PASSWORD' 
+            apt­get install ­y mysql­client mysql­client­5.5 mysql­client­core­5.5 
+            mysql­common mysql­server 
+            cat << EOF | mysql ­u root ­­password=$DB_PASSWORD 
+            CREATE DATABASE wordpress; 
+            GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,DROP,ALTER 
+            ON wordpress.* 
+            TO wordpress 
+            IDENTIFIED BY '$DB_PASSWORD'; 
+            FLUSH PRIVILEGES; 
+            EXIT 
+            EOF 
+            sed ­i s/127.0.0.1/0.0.0.0/ /etc/mysql/my.cnf 
+            service mysql restart
+
+  server_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Test group to demonstrate Neutron security group functionality with Heat.
+      name: test-security-group
+      rules: [
+        {remote_ip_prefix: 0.0.0.0/0,
+        protocol: tcp,
+        port_range_min: 22,
+        port_range_max: 22},
+        {remote_ip_prefix: 0.0.0.0/0,
+        protocol: icmp},
+        {remote_ip_prefix: 0.0.0.0/0,
+        protocol: tcp,
+        port_range_min: 80,
+        port_range_max: 80}, #http
+        {remote_ip_prefix: 0.0.0.0/0,
+        protocol: tcp,
+        port_range_min: 443,
+        port_range_max: 443}, #https
+        {remote_ip_prefix: 0.0.0.0/0,
+        protocol: tcp,
+        port_range_min: 3306,
+        port_range_max: 3306}] #mysql
+
+  #connect the router instance to the public network instance modifiy 
+  #external_gateway_info
+
+outputs:
+  wordpress_private_ip:
+    description: IP address of wordpress in private network
+    value: { get_attr: [ wordpress, first_address ] }
+  wordpress_public_ip:
+    description: Floating IP address of wordpress in public network
+    value: { get_attr: [ wordpress_floating_ip, floating_ip_address ] }
+  mysql_private_ip:
+    description: IP address of mysql in private network
+    value: { get_attr: [ mysql, first_address ] }
+  mysql_public_ip:
+    description: Floating IP address of mysql in public network
+    value: { get_attr: [ mysql_floating_ip, floating_ip_address ] }

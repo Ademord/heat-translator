@@ -1,0 +1,42 @@
+heat_template_version: 2013-05-23
+
+description: >
+  TOSCA simple profile with one router
+
+parameters:
+  public_net:
+    type: string
+    description: Name or ID of the public network
+    default: 53906b86-bcaa-457e-a6a9-d6899ec88c5a
+resources:
+  my_port1:
+    type: OS::Neutron::Port
+    properties:
+      network: { get_resource: my_network1 }
+  router:
+    type: OS::Neutron::Router
+    properties:
+      external_gateway_info:
+        public_network:
+          get_param: public_net
+  mysql_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network: {get_param: public_net}
+      port_id: { get_resource: my_port1 }
+  my_network1:
+    type: OS::Neutron::Net
+    properties:
+      name: net1
+  router_interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      subnet: { get_resource: my_network1_subnet }
+      router: { get_resource: router }
+  my_network1_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      network: { get_resource: my_network1 }
+      ip_version: 4
+      cidr: 192.168.1.0/24
+outputs: {}

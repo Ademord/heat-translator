@@ -1,0 +1,129 @@
+# NFV EXAMPLE
+tosca_definitions_version: tosca_simple_profile_for_nfv_1_0
+description: Simple Virtual Router with one VDU
+metadata:
+  ID: vRouter-1-0-0
+  vendor:  Acme
+  version: 1.0
+node_types:
+  vRouterVNF:
+    derived_from: tosca.nodes.nfv.VNF
+    capabilities:
+      forwarder_ingres:
+        type: tosca.capabilities.nfv.Forwarder
+      forwarder_egres:
+        type: tosca.capabilities.nfv.Forwarder
+  hot.nodes.Compute:
+    derived_from: tosca.nodes.Compute
+    properties:
+      key_name:
+        type: string
+      image:
+        type: string
+      flavor:
+        type: string
+  tosca.nodes.network.FloatingIP:
+    derived_from: tosca.nodes.Root
+    properties:
+      floating_network:
+        type: string
+    requirements:
+      - link:
+          capability: tosca.capabilities.network.Linkable
+          relationship: tosca.relationships.network.LinksTo
+          node: tosca.nodes.network.Port
+topology_template:
+  inputs:
+    compute_image:
+        type: string
+        description: Compute instance image
+        default: cirros
+      compute_flavor:
+        type: string
+        description: Compute instance flavor
+        default: m1.small
+      key_name:
+        type: string
+        description: Key name
+        default: mykey
+
+  substitution_mappings:
+    node_type: vRouterVNF
+    requirements:
+      virtualLink: [CP12, virtualLink]
+      virtualLink: [CP13, virtualLink]
+    capabilities:
+      forwarder_ingres: [CP12, forwarder]
+      forwarder_egres: [CP13, forwarder]
+ 
+  node_templates:
+    VDU1:
+      type: tosca.nodes.nfv.VDU
+      capabilities:
+        nfv_compute:
+          properties:
+            num_cpus: 4
+            mem_size: 4096 MB
+            disk_size: 8 GB      
+      artifacts:
+        vRouterImage:
+          type: tosca.artifacts.Deployment.Image.VM
+          file: vdu1.image  #the VM image of VDU1
+      interfaces:
+         Standard:
+           configure:
+             implementation: vdu1_configure.sh
+    CP11:  
+      type: tosca.nodes.nfv.CP
+      requirements:
+        - virtualbinding: VDU1
+        - virtualLink: net_mgmt
+    CP12:
+      type: tosca.nodes.nfv.CP
+      properties:
+          anti_spoof_protection: false
+      requirements:
+        - virtualbinding: VDU1
+        - virtualLink: net_ingress
+    CP13:
+      type: tosca.nodes.nfv.CP
+      properties:
+         anti_spoof_protection: false
+      requirements:
+        - virtualbinding: VDU1
+        - virtualLink: net_egress
+    net_mgmt:
+      type: tosca.nodes.nfv.VL.ELAN 
+      properties:
+        # Hint to create new virtual network
+        vendor: ACME Networks
+        cidr: 10.1.10.0/24
+        gateway_ip: 10.1.10.1
+        network_type: vlan
+        physical_network: phynet1
+        segmentation_id: 1000  
+      net_ingress:
+        type: tosca.nodes.nfv.VL.ELAN
+      net_egress:
+        type: tosca.nodes.nfv.VL.ELAN
+      my_server:
+        type: hot.nodes.Compute
+        properties:
+          flavor: { get_input: compute_flavor }
+          image: { get_input: compute_image }
+          key_name: { get_input: key_name }
+      my_server_floating_ip:
+        type: tosca.nodes.network.FloatingIP 
+        properties:
+          floating_network: { get_param: public_net }
+        requirements:
+          - link: my_port1 
+      my_port1:
+        type: tosca.nodes.network.Port
+        properties:
+          order: 0
+        requirements:
+          - binding:
+              node: my_server
+          - link:
+              node: my_network1

@@ -1,0 +1,34 @@
+tosca_definitions_version: tosca_simple_yaml_1_0
+
+description: >
+  TOSCA simple profile with one router
+node_types:
+  tosca.nodes.network.Router:
+    derived_from: tosca.datatypes.Root
+    properties:
+      public_network:
+        type: string
+    requirements:
+      - link:
+          capability: tosca.capabilities.network.Linkable
+          relationship: tosca.relationships.network.LinksTo
+          node: tosca.nodes.network.Network
+topology_template:
+  inputs:
+    public_net:
+      type: string
+      description: Name or ID of the public network
+      default: 53906b86-bcaa-457e-a6a9-d6899ec88c5a
+  node_templates:
+    my_network1:
+      type: tosca.nodes.network.Network
+      properties:
+        cidr: '192.168.1.0/24'
+        network_name: net1
+    router:
+      type: tosca.nodes.network.Router
+      properties:
+        public_network: { get_input: public_net }
+      requirements:
+        - link: my_network1
+  outputs:
